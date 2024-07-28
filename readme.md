@@ -1,6 +1,6 @@
-# koishi-plugin-qiandao
+# koishi-plugin-p-qiandao
 
-[![npm](https://img.shields.io/npm/v/koishi-plugin-qiandao?style=flat-square)](https://www.npmjs.com/package/koishi-plugin-qiandao)
+[![npm](https://img.shields.io/npm/v/koishi-plugin-p-qiandao?style=flat-square)](https://www.npmjs.com/package/koishi-plugin-p-qiandao)
 
 p点-签到
 
