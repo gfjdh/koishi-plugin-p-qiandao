@@ -1,16 +1,21 @@
 {
   "name": "koishi-plugin-qiandao",
   "description": "p点-签到",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
     "lib"
   ],
   "contributors": [
-    "gfjdh <18932687693@163.com>"
+    "gfjdh <2556123498@qq.com>"
   ],
   "license": "MIT",
+  "homepage": "https://github.com/gfjdh",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gfjdh/koishi-plugin-qiandao"
+  },
   "keywords": [
     "chatbot",
     "koishi",
