@@ -1,0 +1,73 @@
+adminUsers:
+  $description: 管理员用户
+outputLogs:
+  $description: 是否将用户的签到操作打印在日志里
+init_p:
+  $description: 新用户赠送额度
+limit_p:
+  $description: 存款上限
+upper_limit:
+  $description: 单次奖励上限
+lower_limit:
+  $description: 单次奖励下限
+commands:
+  p-query:
+    description: 查询自己的p点
+    messages:
+        account-notExists: 君现在还没有p点，请先签到哦
+        result: 君现在有{0}p点哦！
+  p-sign:
+    description: 进行一次签到
+    messages:
+        sign-failed: 签到失败，请重试
+        sign-succeed: 签到成功！君收到了{0}P点哦！
+        balance-show: 现在君已经有{0}P点力！
+        new-user: 新用户已赠送{0}p点！
+        exceeding-limit: 君的p点已超过上限{0}
+        already-signed: 那个......君已经签到过力...明天再来吧qwq
+        greating-23-2:
+          - '另外...已经很晚了...早点休息哦..'
+          - '另外...晚安哦..'
+          - '另外...祝你做个好梦..'
+        greating-2-6:
+          - '另外...这么晚不睡...小心猝死哦..'
+          - '另外...这么晚不睡...小心猝死哦..'
+          - '另外...这么晚不睡...小心猝死哦..'
+        greating-6-8:
+          - '另外...早上好..早八人'
+          - '另外...早上好..早八人'
+          - '另外...早上好..早八人'
+        greating-8-11:
+          - '另外...早安哦..'
+          - '另外...早安哦..'
+          - '另外...早安哦..'
+        greating-11-17:
+          - '另外...午安哦..'
+          - '另外...午安哦..'
+          - '另外...午安哦..'
+        greating-17-19:
+          - '另外...记得吃晚饭哦..'
+          - '另外...记得吃晚饭哦..'
+          - '另外...记得吃晚饭哦..'
+        greating-19-21:
+          - '另外...晚上好哦..'
+          - '另外...晚上好哦..'
+          - '另外...晚上好哦..'
+        greating-21-23:
+          - '另外...晚安哦..'
+          - '另外...晚安哦..'
+          - '另外...晚安哦..'
+
+  p-transfer:
+      description: 转账
+      usage: |-
+        使用方法：“转账 @对方 转账额度”，在旧版QQ需要将@元素改为qq号
+      messages:
+        account-notExists: 你还没有账户呢，先去签个到吧！
+        no-id: 转账失败，请尝试将@元素改为qq号！
+        target-notExists: 转账失败，目标账户不存在！
+        self-target: 转账失败，不能给自己转账！
+        wrong-value: 转账失败，转账额度格式不正确！
+        no-enough-p: 转账失败，余额不足！
+        transfer-succeed: 转账成功！
+        result: <at id={0}/>现在有{1}p点！

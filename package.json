@@ -5,18 +5,25 @@
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
-    "lib",
-    "dist"
+    "lib"
+  ],
+  "contributors": [
+    "gfjdh <18932687693@163.com>"
   ],
   "license": "MIT",
-  "scripts": {},
   "keywords": [
     "chatbot",
     "koishi",
     "plugin"
   ],
-  "devDependencies": {},
   "peerDependencies": {
     "koishi": "^4.17.9"
+  },
+  "koishi": {
+    "service": {
+      "required": [
+        "database"
+      ]
+    }
   }
 }
