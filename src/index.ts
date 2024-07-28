@@ -1,6 +1,6 @@
 import { Context, h, Schema, Time } from 'koishi'
 
-export const name = 'qiandao'
+export const name = 'p-qiandao'
 
 export const usage = `
 - **指令：p-query**\n

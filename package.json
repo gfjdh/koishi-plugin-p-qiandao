@@ -1,5 +1,5 @@
 {
-  "name": "koishi-plugin-qiandao",
+  "name": "koishi-plugin-p-qiandao",
   "description": "p点-签到",
   "version": "1.0.0",
   "main": "lib/index.js",
@@ -14,7 +14,7 @@
   "homepage": "https://github.com/gfjdh",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gfjdh/koishi-plugin-qiandao"
+    "url": "git+https://github.com/gfjdh/koishi-plugin-p-qiandao"
   },
   "keywords": [
     "chatbot",
