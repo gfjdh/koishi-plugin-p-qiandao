@@ -154,7 +154,7 @@ export async function apply(ctx: Context, cfg: Config) {
 
       await ctx.database.set('p_system', { userid: USERID }, { favorability: usersdata[0].favorability + 1 });//增加好感
 
-      if (saving >= cfg.limit_p) return session.text('.exceeding-limit', [cfg.limit_p]);
+      if (saving >= cfg.limit_p && cfg.boom_chance) return session.text('.exceeding-limit', [cfg.limit_p]);
 
       const hour = Number((Time.template('hh', new Date())));
       const x = mathRandomInt(0, 2);
