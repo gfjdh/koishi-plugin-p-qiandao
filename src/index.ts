@@ -11,7 +11,7 @@ export const usage = `
 - **指令：p-transfer [target] [value:number]**\n
     别名：转账\n
     目标用户可以使用@元素或qq号，管理员可以转账负数（制裁用）\n
-  在本地化中可以编辑问候语，按时段从三句中随机一句`;
+- 在本地化中可以编辑问候语，按时段从三句中随机一句`;
 
 export const inject = {
   required: ['database'],
