@@ -126,9 +126,10 @@ export async function apply(ctx: Context, cfg: Config) {
       await ctx.database.set('p_system', { userid: USERID }, { p: Number(saving + bonus) }) //更新余额
 
       const new_usersdata = await ctx.database.get('p_system', { userid: USERID });
-      let result = `${h('at', { id: USERID })}.\n${session.text('.sign-succeed', [bonus])}\n`
+      let result = `${h('at', { id: USERID })}.\n${session.text('.sign-succeed', [bonus])}\n`;
       const explodeProbability = cfg.boom_chance; // 概率触发存爆
       const shouldExplode = Math.random() < explodeProbability;
+
       if (new_usersdata[0]?.p > cfg.limit_p && cfg.boom_chance)
       {
         if (shouldExplode)
@@ -138,19 +139,21 @@ export async function apply(ctx: Context, cfg: Config) {
           const explodeAmount = Math.floor(new_usersdata[0].p * (explodeRange[0] + (explodeRange[1] - explodeRange[0]) * Math.random()));
           const newBalance = cfg.limit_p - explodeAmount;
           await ctx.database.set('p_system', { userid: USERID }, { p: newBalance });
-          result += `${session.text('.explode-warning', [explodeAmount])}\n`
-          if(cfg.entry_to_channel)
+          result += `${session.text('.explode-warning', [explodeAmount])}\n`;
+          if (cfg.entry_to_channel)
           {
-            await ctx.database.set('p_graze', { channelid: CHANNELID }, { p: explodeAmount })
-            result += `${session.text('.entry_to_channel')}`
+            await ctx.database.set('p_graze', { channelid: CHANNELID }, { p: explodeAmount });
+            result += `${session.text('.entry_to_channel')}`;
           }
         }
         else
-          result += `${session.text('.balance-show', [new_usersdata[0].p])}`
-        await session.sendQueued(result);
+          result += `${session.text('.balance-show', [new_usersdata[0].p])}`;
       }
       else
-        await session.sendQueued(result);
+        result += `${session.text('.balance-show', [new_usersdata[0].p])}`;
+
+
+      await session.sendQueued(result);
 
       await ctx.database.set('p_system', { userid: USERID }, { favorability: usersdata[0].favorability + 1 });//增加好感
 
