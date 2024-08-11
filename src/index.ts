@@ -124,37 +124,37 @@ export async function apply(ctx: Context, cfg: Config) {
     {
       await ctx.database.set('p_system', { userid: USERID }, { time: new Date() }) //更新签到时间
       await ctx.database.set('p_system', { userid: USERID }, { p: Number(saving + bonus) }) //更新余额
-      const new_usersdata = await ctx.database.get('p_system', { userid: USERID });
 
+      const new_usersdata = await ctx.database.get('p_system', { userid: USERID });
+      let result = `${h('at', { id: USERID })}.\n${session.text('.sign-succeed', [bonus])}\n`
+      const explodeProbability = cfg.boom_chance; // 概率触发存爆
+      const shouldExplode = Math.random() < explodeProbability;
       if (new_usersdata[0]?.p > cfg.limit_p && cfg.boom_chance)
       {
-        const explodeProbability = cfg.boom_chance; // 概率触发存爆
-        const shouldExplode = Math.random() < explodeProbability;
-
-        if (shouldExplode) {
+        if (shouldExplode)
+        {
           const CHANNELID = session.channelId;
           const explodeRange = [cfg.boom_lower_limit, cfg.boom_upper_limit];
           const explodeAmount = Math.floor(new_usersdata[0].p * (explodeRange[0] + (explodeRange[1] - explodeRange[0]) * Math.random()));
           const newBalance = cfg.limit_p - explodeAmount;
           await ctx.database.set('p_system', { userid: USERID }, { p: newBalance });
-          let result = `${h('at', { id: USERID })}.\n${session.text('.sign-succeed', [bonus])}\n${session.text('.explode-warning', [explodeAmount])}\n`
+          result += `${session.text('.explode-warning', [explodeAmount])}\n`
           if(cfg.entry_to_channel)
           {
             await ctx.database.set('p_graze', { channelid: CHANNELID }, { p: explodeAmount })
             result += `${session.text('.entry_to_channel')}`
           }
-          await session.sendQueued(result);
-        } else {
-          await ctx.database.set('p_system', { userid: USERID }, { p: cfg.limit_p })
-          await session.sendQueued(`${h('at', { id: USERID })}.\n${session.text('.sign-succeed', [bonus])}\n${session.text('.balance-show', [cfg.limit_p])}`);
         }
+        else
+          result += `${session.text('.balance-show', [new_usersdata[0].p])}`
+        await session.sendQueued(result);
       }
       else
-        await session.sendQueued(`${h('at', { id: USERID })}.\n${session.text('.sign-succeed', [bonus])}\n${session.text('.balance-show', [new_usersdata[0].p])}`);
+        await session.sendQueued(result);
 
       await ctx.database.set('p_system', { userid: USERID }, { favorability: usersdata[0].favorability + 1 });//增加好感
 
-      if (saving >= cfg.limit_p && cfg.boom_chance) return session.text('.exceeding-limit', [cfg.limit_p]);
+      if (new_usersdata[0].p >= cfg.limit_p && cfg.boom_chance && !shouldExplode) return session.text('.exceeding-limit', [cfg.limit_p]);
 
       const hour = Number((Time.template('hh', new Date())));
       const x = mathRandomInt(0, 2);
