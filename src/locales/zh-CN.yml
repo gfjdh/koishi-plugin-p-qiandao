@@ -10,6 +10,14 @@ upper_limit:
   $description: 单次奖励上限
 lower_limit:
   $description: 单次奖励下限
+boom_chance:
+  $description: 存满爆炸概率
+entry_to_channel:
+  $description: 爆的p点是否进入群p点池(擦弹池)
+boom_upper_limit:
+  $description: 存满爆炸百分比上限
+boom_lower_limit:
+  $description: 存满爆炸百分比下限
 commands:
   p-query:
     description: 查询自己的p点
@@ -21,9 +29,11 @@ commands:
     messages:
         sign-failed: 签到失败，请重试
         sign-succeed: 签到成功！君收到了{0}P点哦！
+        explode-warning: boom!你的存款机存爆了！爆了{0}p点！
         balance-show: 现在君已经有{0}P点力！
         new-user: 新用户已赠送{0}p点！
-        exceeding-limit: 君的p点已超过上限{0}
+        exceeding-limit: 君的p点已超过{0},还不花的话有概率会存爆哦...
+        entry_to_channel: p点已进入本群p点池！
         already-signed: 那个......君已经签到过力...明天再来吧qwq
         greating-23-2:
           - '另外...已经很晚了...早点休息哦..'

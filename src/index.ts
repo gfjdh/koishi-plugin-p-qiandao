@@ -23,16 +23,24 @@ export interface Config {
   limit_p: number
   upper_limit: number
   lower_limit: number
+  boom_chance: number
+  boom_upper_limit: number
+  boom_lower_limit: number
+  entry_to_channel: boolean
   outputLogs: boolean
 }
 
 export const Config: Schema<Config> = Schema.object({
   adminUsers: Schema.array(Schema.string()),
-  init_p: Schema.number().default(1000),
-  limit_p: Schema.number().default(99999),
-  upper_limit: Schema.number().default(1000),
-  lower_limit: Schema.number().default(500),
-  outputLogs: Schema.boolean().default(true),
+  init_p: Schema.number().required(),
+  limit_p: Schema.number().required(),
+  upper_limit: Schema.number().required(),
+  lower_limit: Schema.number().required(),
+  boom_chance: Schema.number().role('slider').min(0).max(1).step(0.01).default(0),
+  entry_to_channel: Schema.boolean().default(false),
+  boom_upper_limit: Schema.number().role('slider').min(0).max(1).step(0.01).default(0.8),
+  boom_lower_limit: Schema.number().role('slider').min(0).max(1).step(0.01).default(0.2),
+  outputLogs: Schema.boolean().default(true)
 }).i18n({
   'zh-CN': require('./locales/zh-CN'),
 })
@@ -42,7 +50,6 @@ function mathRandomInt(a: number, b: number) {
     var c = a; a = b; b = c;
   } return Math.floor(Math.random() * (b - a + 1) + a);
 }
-
 async function isTargetIdExists(ctx: Context, USERID: string) {
   //检查数据表中是否有指定id者
   const targetInfo = await ctx.database.get('p_system', { userid: USERID });
@@ -50,6 +57,7 @@ async function isTargetIdExists(ctx: Context, USERID: string) {
 }
 declare module 'koishi' {
   interface Tables { p_system: p_system }
+  interface Tables { p_graze: p_graze }
 }
 export interface p_system {
   id: number
@@ -57,6 +65,15 @@ export interface p_system {
   usersname: string
   p: number
   time: Date
+  favorability: number
+}
+
+export interface p_graze {
+  id: number
+  channelid: string
+  bullet: number
+  p: number
+  users: string
 }
 
 export async function apply(ctx: Context, cfg: Config) {
@@ -65,20 +82,23 @@ export async function apply(ctx: Context, cfg: Config) {
     userid: 'string',
     time: 'timestamp',
     usersname: 'string',
-    p: 'integer'
+    p: 'integer',
+    favorability: 'integer'
   }, { autoInc: true })
+
+  if(cfg.entry_to_channel)
+  {
+    ctx.model.extend('p_graze', {
+      id: 'unsigned',
+      channelid: 'string',
+      bullet: 'integer',
+      p: 'integer',
+      users: 'string'
+    }, { autoInc: true })
+  }
 
   const logger = ctx.logger("p-签到")
   ctx.i18n.define('zh-CN', require('./locales/zh-CN'))
-
-  ctx.command('p/p-query').alias('查询p点', 'p点查询').action(async ({ session }) => {
-    const USERID = session.userId;//发送者的用户id
-    const notExists = await isTargetIdExists(ctx, USERID); //该群中的该用户是否签到过
-    if (notExists) return session.text('.account-notExists');
-    const usersdata = await ctx.database.get('p_system', { userid: USERID });
-    const saving = usersdata[0]?.p;
-    await session.sendQueued(session.text('.result', [saving]));
-  });
 
   ctx.command('p/p-sign').alias('签到').action(async ({ session }) => {
     if ((session.userId) == null) return session.text('.sign-failed');
@@ -86,14 +106,13 @@ export async function apply(ctx: Context, cfg: Config) {
     const USERID = session.userId;     //发送者的用户id
     const notExists = await isTargetIdExists(ctx, USERID); //该群中的该用户是否签到过
     if (notExists) {
-      await ctx.database.create('p_system', { userid: USERID, usersname: USERNAME, p: cfg.init_p, time: new Date() })
+      await ctx.database.create('p_system', { userid: USERID, usersname: USERNAME, p: cfg.init_p,  favorability: 0,time: new Date() })
       await session.sendQueued(session.text('.new-user', [cfg.init_p]));
     }
     await ctx.database.set('p_system', { userid: USERID }, { usersname: USERNAME })//更新用户名
 
     const usersdata = await ctx.database.get('p_system', { userid: USERID });
     const saving = usersdata[0].p;
-    if (saving >= 99999) return session.text('.exceeding-limit', [cfg.limit_p]);
 
     let oldDate: string;
     if (usersdata[0]?.time) oldDate = Time.template('yyyy-MM-dd', usersdata[0].time);
@@ -104,12 +123,39 @@ export async function apply(ctx: Context, cfg: Config) {
     if (cfg.adminUsers.includes(USERID) || newDate != oldDate || notExists) //管理员||新日期||新用户
     {
       await ctx.database.set('p_system', { userid: USERID }, { time: new Date() }) //更新签到时间
-      await session.sendQueued(`${h('at', { id: USERID })}.\n${session.text('.sign-succeed', [bonus])}\n${session.text('.balance-show', [bonus + saving])}`);
-
       await ctx.database.set('p_system', { userid: USERID }, { p: Number(saving + bonus) }) //更新余额
+      const new_usersdata = await ctx.database.get('p_system', { userid: USERID });
 
-      if (ctx.database.get('p_system', { userid: USERID })[0]?.p > cfg.limit_p)
-        await ctx.database.set('p_system', { userid: USERID }, { p: cfg.limit_p })
+      if (new_usersdata[0]?.p > cfg.limit_p && cfg.boom_chance)
+      {
+        const explodeProbability = cfg.boom_chance; // 概率触发存爆
+        const shouldExplode = Math.random() < explodeProbability;
+
+        if (shouldExplode) {
+          const CHANNELID = session.channelId;
+          const explodeRange = [cfg.boom_lower_limit, cfg.boom_upper_limit];
+          const explodeAmount = Math.floor(new_usersdata[0].p * (explodeRange[0] + (explodeRange[1] - explodeRange[0]) * Math.random()));
+          const newBalance = cfg.limit_p - explodeAmount;
+          await ctx.database.set('p_system', { userid: USERID }, { p: newBalance });
+          let result = `${h('at', { id: USERID })}.\n${session.text('.sign-succeed', [bonus])}\n${session.text('.explode-warning', [explodeAmount])}\n`
+          if(cfg.entry_to_channel)
+          {
+            await ctx.database.set('p_graze', { channelid: CHANNELID }, { p: explodeAmount })
+            result += `${session.text('.entry_to_channel')}`
+          }
+          await session.sendQueued(result);
+        } else {
+          await ctx.database.set('p_system', { userid: USERID }, { p: cfg.limit_p })
+          await session.sendQueued(`${h('at', { id: USERID })}.\n${session.text('.sign-succeed', [bonus])}\n${session.text('.balance-show', [cfg.limit_p])}`);
+        }
+      }
+      else
+        await session.sendQueued(`${h('at', { id: USERID })}.\n${session.text('.sign-succeed', [bonus])}\n${session.text('.balance-show', [new_usersdata[0].p])}`);
+
+      await ctx.database.set('p_system', { userid: USERID }, { favorability: usersdata[0].favorability + 1 });//增加好感
+
+      if (saving >= cfg.limit_p) return session.text('.exceeding-limit', [cfg.limit_p]);
+
       const hour = Number((Time.template('hh', new Date())));
       const x = mathRandomInt(0, 2);
       const timeRanges = [
@@ -135,6 +181,15 @@ export async function apply(ctx: Context, cfg: Config) {
       await session.sendQueued(h('at', { id: USERID }) + session.text('.already-signed'));
       if (cfg.outputLogs) logger.info(USERID + USERNAME + '该用户已经签到');
     }
+  });
+
+  ctx.command('p/p-query').alias('查询p点', 'p点查询').action(async ({ session }) => {
+    const USERID = session.userId;//发送者的用户id
+    const notExists = await isTargetIdExists(ctx, USERID); //该群中的该用户是否签到过
+    if (notExists) return session.text('.account-notExists');
+    const usersdata = await ctx.database.get('p_system', { userid: USERID });
+    const saving = usersdata[0]?.p;
+    await session.sendQueued(session.text('.result', [saving]));
   });
 
   ctx.command('p/p-transfer [target] [value:number]').alias('转账').action(async ({ session }, target, value) => {
