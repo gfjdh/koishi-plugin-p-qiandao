@@ -1,6 +1,6 @@
 {
   "name": "koishi-plugin-p-qiandao",
-  "description": "p点-签到",
+  "description": "p点-签到 新增存爆功能",
   "version": "1.0.2",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
@@ -11,7 +11,7 @@
     "gfjdh <2556123498@qq.com>"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/gfjdh",
+  "homepage": "https://github.com/gfjdh/koishi-plugin-p-qiandao.git",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gfjdh/koishi-plugin-p-qiandao.git"
