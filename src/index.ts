@@ -27,6 +27,8 @@ export interface Config {
   boom_upper_limit: number
   boom_lower_limit: number
   entry_to_channel: boolean
+  enable_greatting: boolean
+  signOffset: number
   outputLogs: boolean
 }
 
@@ -40,6 +42,8 @@ export const Config: Schema<Config> = Schema.object({
   entry_to_channel: Schema.boolean().default(false),
   boom_upper_limit: Schema.number().role('slider').min(0).max(1).step(0.01).default(0.8),
   boom_lower_limit: Schema.number().role('slider').min(0).max(1).step(0.01).default(0.2),
+  enable_greatting: Schema.boolean().default(true),
+  signOffset: Schema.number().default(0),
   outputLogs: Schema.boolean().default(true)
 }).i18n({
   'zh-CN': require('./locales/zh-CN'),
@@ -116,13 +120,13 @@ export async function apply(ctx: Context, cfg: Config) {
 
     let oldDate: string;
     if (usersdata[0]?.time) oldDate = Time.template('yyyy-MM-dd', usersdata[0].time);
-    const newDate = Time.template('yyyy-MM-dd', new Date());
+    const newDate = Time.template('yyyy-MM-dd', new Date(Date.now() + cfg.signOffset * 60 * 1000));  // 使用偏移量
 
     let bonus = Number(mathRandomInt(cfg.lower_limit, cfg.upper_limit));
 
     if (cfg.adminUsers.includes(USERID) || newDate != oldDate || notExists) //管理员||新日期||新用户
     {
-      await ctx.database.set('p_system', { userid: USERID }, { time: new Date() }) //更新签到时间
+      await ctx.database.set('p_system', { userid: USERID }, { time: new Date(Date.now() + cfg.signOffset * 60 * 1000) }) //更新签到时间
       await ctx.database.set('p_system', { userid: USERID }, { p: Number(saving + bonus) }) //更新余额
 
       const new_usersdata = await ctx.database.get('p_system', { userid: USERID });
@@ -159,7 +163,7 @@ export async function apply(ctx: Context, cfg: Config) {
 
       if (new_usersdata[0].p >= cfg.limit_p && cfg.boom_chance && !shouldExplode) return session.text('.exceeding-limit', [cfg.limit_p]);
 
-      const hour = Number((Time.template('hh', new Date())));
+      const hour = Number(Time.template('hh', new Date()));
       const x = mathRandomInt(0, 2);
       const timeRanges = [
         { start: 0, end: 2, label: '23-2' },
@@ -177,7 +181,7 @@ export async function apply(ctx: Context, cfg: Config) {
       const currentRange = timeRanges.find(range => hour >= range.start && hour < range.end);
       url += currentRange.label + '.' + x;
 
-      await session.send(session.text(url));
+      if (cfg.enable_greatting) await session.send(session.text(url));
       if (cfg.outputLogs) logger.success(USERID + USERNAME + '完成了一次签到！');
     }
     else {

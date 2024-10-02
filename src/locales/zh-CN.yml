@@ -18,6 +18,8 @@ boom_upper_limit:
   $description: 存满爆炸百分比上限
 boom_lower_limit:
   $description: 存满爆炸百分比下限
+signOffset:
+  $description: "签到刷新时间的提前量（分钟）"
 commands:
   p-query:
     description: 查询自己的p点
