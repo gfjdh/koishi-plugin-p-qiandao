@@ -30,6 +30,8 @@ export interface Config {
   enable_greatting: boolean
   signOffset: number
   outputLogs: boolean
+  taxEnabled?: boolean
+  taxRate?: number
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -44,7 +46,9 @@ export const Config: Schema<Config> = Schema.object({
   boom_lower_limit: Schema.number().role('slider').min(0).max(1).step(0.01).default(0.2),
   enable_greatting: Schema.boolean().default(true),
   signOffset: Schema.number().default(0),
-  outputLogs: Schema.boolean().default(true)
+  outputLogs: Schema.boolean().default(true),
+  taxEnabled: Schema.boolean().default(false),
+  taxRate: Schema.number().role('slider').min(0).max(1).step(0.01).default(0.05)
 }).i18n({
   'zh-CN': require('./locales/zh-CN'),
 })
@@ -220,15 +224,24 @@ export async function apply(ctx: Context, cfg: Config) {
     const targetData = await ctx.database.get('p_system', { userid: targetid });
     if (USERID == targetid) return session.text('.self-target');
     if (!(p > 0) && !cfg.adminUsers.includes(USERID)) return session.text('.wrong-value'); //管理员可转负数
+    let netValue = p
+    if (cfg.taxEnabled && p > 0) {
+      const taxAmount = Math.floor(p * cfg.taxRate)
+      netValue = p - taxAmount
+    }
     if (usersdata[0].p < p) return session.text('.no-enough-p');
 
-    // 更新发送者和接收者的余额
-    await ctx.database.set('p_system', { userid: USERID }, { p: usersdata[0].p - p });
-    await ctx.database.set('p_system', { userid: targetid }, { p: targetData[0].p + p });
+    // 更新发送者和接收者的余额，并设为整数
+    await ctx.database.set('p_system', { userid: USERID }, { p: Math.floor(usersdata[0].p - p) });
+    await ctx.database.set('p_system', { userid: targetid }, { p: Math.floor(targetData[0].p + netValue) });
 
     const senderBalance = (await ctx.database.get('p_system', { userid: USERID }))[0].p;
     const receiverBalance = (await ctx.database.get('p_system', { userid: targetid }))[0].p;
 
-    return `${session.text('.transfer-succeed')}\n.${session.text('.result', [targetid,receiverBalance])}\n.${session.text('.result', [USERID,senderBalance])}`;
+    let result = `${session.text('.transfer-succeed')}\n.${session.text('.result', [targetid, receiverBalance])}\n.${session.text('.result', [USERID, senderBalance])}`
+    if (cfg.taxEnabled && p > 0) {
+      result += `\n${session.text('.tax-info', [p - netValue])}`
+    }
+    return result
   });
 }

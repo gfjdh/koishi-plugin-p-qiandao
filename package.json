@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-p-qiandao",
-  "description": "p点-签到 新增时间偏移",
-  "version": "1.0.4",
+  "description": "p点-签到",
+  "version": "1.0.6",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [

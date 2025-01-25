@@ -20,6 +20,10 @@ boom_lower_limit:
   $description: 存满爆炸百分比下限
 signOffset:
   $description: "签到刷新时间的提前量（分钟）"
+taxEnabled:
+  $description: 是否启用转账手续费
+taxRate:
+  $description: 转账手续费率
 commands:
   p-query:
     description: 查询自己的p点
@@ -83,3 +87,4 @@ commands:
         no-enough-p: 转账失败，余额不足！
         transfer-succeed: 转账成功！
         result: <at id={0}/>现在有{1}p点！
+        tax-info: 扣除手续费{0}p点！
