@@ -29,17 +29,16 @@ interface UserData {
   p: number
   time: Date
   favorability: number
-  item?: Record<string, ItemInfo>
+  items?: Record<string, ItemInfo>
 }
 
 // 道具数据模型
 interface ItemInfo {
-  count?: number;
-  price?: number;
+  id: string;
+  count: number;
+  price: number;
   description?: string;
-  data?: {
-    // 扩展字段...
-  };
+  favorability_limit?: number;
 }
 
 interface GrazeData {
@@ -310,7 +309,8 @@ export async function apply(ctx: Context, config: Config) {
     usersname: 'string',
     p: 'integer',
     time: 'timestamp',
-    favorability: 'integer'
+    favorability: 'integer',
+    items: 'object'
   }, { autoInc: true })
 
   if (config.entry_to_channel) {
