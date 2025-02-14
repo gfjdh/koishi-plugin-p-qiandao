@@ -131,31 +131,27 @@ export async function apply(ctx: Context, cfg: Config) {
     if (cfg.adminUsers.includes(USERID) || newDate != oldDate || notExists) //管理员||新日期||新用户
     {
       await ctx.database.set('p_system', { userid: USERID }, { time: new Date(Date.now() + cfg.signOffset * 60 * 1000) }) //更新签到时间
-      await ctx.database.set('p_system', { userid: USERID }, { p: Number(saving + bonus) }) //更新余额
+      await ctx.database.set('p_system', { userid: USERID }, { p: Math.floor(saving + bonus) }) //更新余额
 
       const new_usersdata = await ctx.database.get('p_system', { userid: USERID });
       let result = `${h('at', { id: USERID })}.\n${session.text('.sign-succeed', [bonus])}\n`;
       const explodeProbability = cfg.boom_chance; // 概率触发存爆
       const shouldExplode = Math.random() < explodeProbability;
 
-      if (new_usersdata[0]?.p > cfg.limit_p && cfg.boom_chance)
+      if (new_usersdata[0]?.p > cfg.limit_p && cfg.boom_chance && shouldExplode)
       {
-        if (shouldExplode)
+        const CHANNELID = session.channelId;
+        const explodeRange = [cfg.boom_lower_limit, cfg.boom_upper_limit];
+        const explodeAmount = Math.floor(new_usersdata[0].p * (explodeRange[0] + (explodeRange[1] - explodeRange[0]) * Math.random()));
+        const newBalance = cfg.limit_p - explodeAmount;
+        await ctx.database.set('p_system', { userid: USERID }, { p: newBalance });
+        result += `${session.text('.explode-warning', [explodeAmount])}\n`;
+        if (cfg.entry_to_channel)
         {
-          const CHANNELID = session.channelId;
-          const explodeRange = [cfg.boom_lower_limit, cfg.boom_upper_limit];
-          const explodeAmount = Math.floor(new_usersdata[0].p * (explodeRange[0] + (explodeRange[1] - explodeRange[0]) * Math.random()));
-          const newBalance = cfg.limit_p - explodeAmount;
-          await ctx.database.set('p_system', { userid: USERID }, { p: newBalance });
-          result += `${session.text('.explode-warning', [explodeAmount])}\n`;
-          if (cfg.entry_to_channel)
-          {
-            await ctx.database.set('p_graze', { channelid: CHANNELID }, { p: explodeAmount });
-            result += `${session.text('.entry_to_channel')}`;
-          }
+          const channelData = await ctx.database.get('p_graze', { channelid: CHANNELID });
+          await ctx.database.set('p_graze', { channelid: CHANNELID }, { p: explodeAmount + channelData[0].p });
+          result += `${session.text('.entry_to_channel')}`;
         }
-        else
-          result += `${session.text('.balance-show', [new_usersdata[0].p])}`;
       }
       else
         result += `${session.text('.balance-show', [new_usersdata[0].p])}`;
