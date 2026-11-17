@@ -1,4 +1,7 @@
-import { Context, h, Schema, Time } from 'koishi'
+import { Context, h, Schema, Session, Time } from 'koishi'
+import type {} from 'koishi-plugin-puppeteer'
+import { Renderer } from './render'
+import { alreadySignedCard, queryCard, signCard, transferCard } from './render/cards'
 
 export const name = 'p-qiandao'
 
@@ -15,8 +18,9 @@ export const usage = `
 
 export const inject = {
   required: ['database'],
-  optional: [],
+  optional: ['puppeteer'],
 }
+
 export interface Config {
   adminUsers: string[]
   init_p: number
@@ -48,25 +52,16 @@ export const Config: Schema<Config> = Schema.object({
   signOffset: Schema.number().default(0),
   outputLogs: Schema.boolean().default(true),
   taxEnabled: Schema.boolean().default(false),
-  taxRate: Schema.number().role('slider').min(0).max(1).step(0.01).default(0.05)
+  taxRate: Schema.number().role('slider').min(0).max(1).step(0.01).default(0.05),
 }).i18n({
   'zh-CN': require('./locales/zh-CN'),
 })
 
-function mathRandomInt(a: number, b: number) {
-  if (a > b) {      // Swap a and b to ensure a is smaller.
-    var c = a; a = b; b = c;
-  } return Math.floor(Math.random() * (b - a + 1) + a);
-}
-async function isTargetIdExists(ctx: Context, USERID: string) {
-  //检查数据表中是否有指定id者
-  const targetInfo = await ctx.database.get('p_system', { userid: USERID });
-  return targetInfo.length == 0;
-}
 declare module 'koishi' {
   interface Tables { p_system: p_system }
   interface Tables { p_graze: p_graze }
 }
+
 export interface p_system {
   id: number
   userid: string
@@ -84,6 +79,88 @@ export interface p_graze {
   users: string
 }
 
+function mathRandomInt(a: number, b: number) {
+  if (a > b) {
+    const c = a
+    a = b
+    b = c
+  }
+  return Math.floor(Math.random() * (b - a + 1) + a)
+}
+
+function dayKey(date: Date): string {
+  return Time.template('yyyy-MM-dd', date)
+}
+
+function dateLabel(date: Date): string {
+  return Time.template('yyyy-MM-dd', date)
+}
+
+function clockLabel(date: Date): string {
+  return Time.template('hh:mm', date)
+}
+
+function fullTimeLabel(date: Date): string {
+  return Time.template('yyyy-MM-dd hh:mm', date)
+}
+
+function asDate(value: Date | string | number | null | undefined): Date | null {
+  if (value == null) return null
+  const date = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function greetingKey(hour: number): string {
+  if (hour >= 23 || hour < 2) return '23-2'
+  if (hour < 6) return '2-6'
+  if (hour < 8) return '6-8'
+  if (hour < 11) return '8-11'
+  if (hour < 17) return '11-17'
+  if (hour < 19) return '17-19'
+  if (hour < 21) return '19-21'
+  return '21-23'
+}
+
+/** 目标解析：@ 元素优先，其次 <at id="..."/> 文本，最后才接受纯数字 ID。 */
+function resolveTargetId(session: Session, target: string | undefined): string | null {
+  const ats = (session.elements || []).filter((element) => {
+    return element.type === 'at' && String(element.attrs?.id) !== String(session.selfId)
+  })
+  if (ats.length) {
+    const id = ats[0].attrs?.id
+    if (id != null) return String(id)
+  }
+  const text = String(target ?? '').trim()
+  if (!text) return null
+  const elementMatch = /<at\s+id="([^"]+)"/.exec(text)
+  if (elementMatch) return elementMatch[1]
+  if (/^\d{4,}$/.test(text)) return text
+  return null
+}
+
+interface SignOutcome {
+  alreadySigned: boolean
+  isNew?: boolean
+  bonus?: number
+  balance: number
+  favorability: number
+  exploded?: boolean
+  explodeAmount?: number
+  poolInjected?: boolean
+  lastSign?: Date | null
+}
+
+type TransferOutcome =
+  | { error: 'account-notExists' | 'target-notExists' | 'no-enough-p' }
+  | {
+    ok: true
+    senderBalance: number
+    receiverBalance: number
+    receiverName: string
+    fee: number
+    net: number
+  }
+
 export async function apply(ctx: Context, cfg: Config) {
   ctx.model.extend('p_system', {
     id: 'unsigned',
@@ -91,157 +168,289 @@ export async function apply(ctx: Context, cfg: Config) {
     time: 'timestamp',
     usersname: 'string',
     p: 'integer',
-    favorability: 'integer'
+    favorability: 'integer',
   }, { autoInc: true })
 
-  if(cfg.entry_to_channel)
-  {
+  if (cfg.entry_to_channel) {
     ctx.model.extend('p_graze', {
       id: 'unsigned',
       channelid: 'string',
       bullet: 'integer',
       p: 'integer',
-      users: 'string'
+      users: 'string',
     }, { autoInc: true })
   }
 
-  const logger = ctx.logger("p-签到")
+  const logger = ctx.logger('p-签到')
+  const renderer = new Renderer(ctx)
+  const adminUsers = cfg.adminUsers || []
   ctx.i18n.define('zh-CN', require('./locales/zh-CN'))
 
+  // SQLite 同一连接不支持并发或嵌套事务，所有事务统一走这条串行链。
+  let txChain: Promise<unknown> = Promise.resolve()
+  function transact<T>(callback: (db: any) => Promise<T>): Promise<T> {
+    const run = txChain.then(() => ctx.database.transact(callback))
+    txChain = run.then(() => undefined, () => undefined)
+    return run
+  }
+
+  async function output(html: string, fallback: string): Promise<string> {
+    const image = await renderer.render(html)
+    return image || fallback
+  }
+
   ctx.command('p/p-sign').alias('签到').action(async ({ session }) => {
-    if ((session.userId) == null) return session.text('.sign-failed');
-    const USERNAME = session.username; //发送者的用户名
-    const USERID = session.userId;     //发送者的用户id
-    const notExists = await isTargetIdExists(ctx, USERID); //该群中的该用户是否签到过
-    if (notExists) {
-      await ctx.database.create('p_system', { userid: USERID, usersname: USERNAME, p: cfg.init_p,  favorability: 0,time: new Date() })
-      await session.sendQueued(session.text('.new-user', [cfg.init_p]));
-    }
-    await ctx.database.set('p_system', { userid: USERID }, { usersname: USERNAME })//更新用户名
+    const userId = session.userId
+    if (!userId) return session.text('.sign-failed')
+    const userName = session.username || userId
+    const isAdmin = adminUsers.includes(userId)
+    const shiftedNow = new Date(Date.now() + cfg.signOffset * 60 * 1000)
+    const today = dayKey(shiftedNow)
 
-    const usersdata = await ctx.database.get('p_system', { userid: USERID });
-    const saving = usersdata[0].p;
+    let outcome: SignOutcome
+    try {
+      outcome = await transact<SignOutcome>(async (db) => {
+        const [row] = await db.get('p_system', { userid: userId })
+        const isNew = !row
+        const baseP = isNew ? Number(cfg.init_p || 0) : Number(row?.p || 0)
+        const lastSign = asDate(row?.time)
+        const canSign = isAdmin || isNew || !lastSign || dayKey(lastSign) !== today
 
-    let oldDate: string;
-    if (usersdata[0]?.time) oldDate = Time.template('yyyy-MM-dd', usersdata[0].time);
-    const newDate = Time.template('yyyy-MM-dd', new Date(Date.now() + cfg.signOffset * 60 * 1000));  // 使用偏移量
-
-    let bonus = Number(mathRandomInt(cfg.lower_limit, cfg.upper_limit));
-
-    if (cfg.adminUsers.includes(USERID) || newDate != oldDate || notExists) //管理员||新日期||新用户
-    {
-      await ctx.database.set('p_system', { userid: USERID }, { time: new Date(Date.now() + cfg.signOffset * 60 * 1000) }) //更新签到时间
-      await ctx.database.set('p_system', { userid: USERID }, { p: Number(saving + bonus) }) //更新余额
-
-      const new_usersdata = await ctx.database.get('p_system', { userid: USERID });
-      let result = `${h('at', { id: USERID })}.\n${session.text('.sign-succeed', [bonus])}\n`;
-      const explodeProbability = cfg.boom_chance; // 概率触发存爆
-      const shouldExplode = Math.random() < explodeProbability;
-
-      if (new_usersdata[0]?.p > cfg.limit_p && cfg.boom_chance)
-      {
-        if (shouldExplode)
-        {
-          const CHANNELID = session.channelId;
-          const explodeRange = [cfg.boom_lower_limit, cfg.boom_upper_limit];
-          const explodeAmount = Math.floor(new_usersdata[0].p * (explodeRange[0] + (explodeRange[1] - explodeRange[0]) * Math.random()));
-          const newBalance = cfg.limit_p - explodeAmount;
-          await ctx.database.set('p_system', { userid: USERID }, { p: newBalance });
-          result += `${session.text('.explode-warning', [explodeAmount])}\n`;
-          if (cfg.entry_to_channel)
-          {
-            await ctx.database.set('p_graze', { channelid: CHANNELID }, { p: explodeAmount });
-            result += `${session.text('.entry_to_channel')}`;
+        if (!canSign) {
+          if (row && userName !== row.usersname) {
+            await db.set('p_system', { userid: userId }, { usersname: userName })
+          }
+          return {
+            alreadySigned: true,
+            balance: baseP,
+            favorability: Number(row?.favorability || 0),
+            lastSign,
           }
         }
-        else
-          result += `${session.text('.balance-show', [new_usersdata[0].p])}`;
-      }
-      else
-        result += `${session.text('.balance-show', [new_usersdata[0].p])}`;
 
+        const bonus = Number(mathRandomInt(cfg.lower_limit, cfg.upper_limit))
+        let balance = baseP + bonus
+        const overLimit = balance > cfg.limit_p
+        const exploded = overLimit && cfg.boom_chance > 0 && Math.random() < cfg.boom_chance
+        let explodeAmount = 0
+        let poolInjected = false
 
-      await session.sendQueued(result);
+        if (exploded) {
+          const low = Math.min(cfg.boom_lower_limit, cfg.boom_upper_limit)
+          const high = Math.max(cfg.boom_lower_limit, cfg.boom_upper_limit)
+          explodeAmount = Math.floor(balance * (low + (high - low) * Math.random()))
+          balance = cfg.limit_p - explodeAmount
+          if (cfg.entry_to_channel && session.channelId) {
+            const channelId = session.channelId
+            const [pool] = await db.get('p_graze', { channelid: channelId })
+            if (pool) {
+              await db.set('p_graze', { channelid: channelId }, { p: Number(pool.p || 0) + explodeAmount })
+            } else {
+              await db.create('p_graze', {
+                channelid: channelId,
+                p: explodeAmount,
+                bullet: 0,
+                users: userId,
+              })
+            }
+            poolInjected = true
+          }
+        }
 
-      await ctx.database.set('p_system', { userid: USERID }, { favorability: usersdata[0].favorability + 1 });//增加好感
+        const favorability = Number(row?.favorability || 0) + 1
+        if (isNew) {
+          await db.create('p_system', {
+            userid: userId,
+            usersname: userName,
+            p: balance,
+            time: shiftedNow,
+            favorability,
+          })
+        } else {
+          await db.set('p_system', { userid: userId }, {
+            usersname: userName,
+            p: balance,
+            time: shiftedNow,
+            favorability,
+          })
+        }
 
-      if (new_usersdata[0].p >= cfg.limit_p && cfg.boom_chance && !shouldExplode) return session.text('.exceeding-limit', [cfg.limit_p]);
-
-      const hour = Number(Time.template('hh', new Date()));
-      const x = mathRandomInt(0, 2);
-      const timeRanges = [
-        { start: 0, end: 2, label: '23-2' },
-        { start: 2, end: 6, label: '2-6' },
-        { start: 6, end: 8, label: '6-8' },
-        { start: 8, end: 11, label: '8-11' },
-        { start: 11, end: 17, label: '11-17' },
-        { start: 17, end: 19, label: '17-19' },
-        { start: 19, end: 21, label: '19-21' },
-        { start: 21, end: 23, label: '21-23' },
-        { start: 23, end: 24, label: '23-2' }
-      ];
-
-      let url = '.greating-';
-      const currentRange = timeRanges.find(range => hour >= range.start && hour < range.end);
-      url += currentRange.label + '.' + x;
-
-      if (cfg.enable_greatting) await session.send(session.text(url));
-      if (cfg.outputLogs) logger.success(USERID + USERNAME + '完成了一次签到！');
+        return {
+          alreadySigned: false,
+          isNew,
+          bonus,
+          balance,
+          favorability,
+          exploded,
+          explodeAmount,
+          poolInjected,
+        }
+      })
+    } catch (error) {
+      logger.warn('签到失败：', error)
+      return session.text('.sign-failed')
     }
-    else {
-      await session.sendQueued(h('at', { id: USERID }) + session.text('.already-signed'));
-      if (cfg.outputLogs) logger.info(USERID + USERNAME + '该用户已经签到');
+
+    if (outcome.alreadySigned) {
+      const lastSignLabel = outcome.lastSign ? fullTimeLabel(outcome.lastSign) : '暂无记录'
+      const fallback = h('at', { id: userId }).toString() + session.text('.already-signed')
+      if (cfg.outputLogs) logger.info(userId + userName + '该用户已经签到')
+      return output(alreadySignedCard({
+        userName,
+        userId,
+        balance: outcome.balance,
+        safeLimit: cfg.limit_p,
+        lastSignLabel,
+        dateLabel: dateLabel(shiftedNow),
+        timeLabel: clockLabel(shiftedNow),
+        boomChance: cfg.boom_chance,
+        dialogue: session.text('.already-signed'),
+      }), fallback)
     }
-  });
+
+    const greeting = cfg.enable_greatting
+      ? session.text(`.greating-${greetingKey(Number(Time.template('hh', shiftedNow)))}.${mathRandomInt(0, 2)}`)
+      : ''
+    const risky = outcome.balance > cfg.limit_p && cfg.boom_chance > 0
+    const dialogue = outcome.exploded
+      ? session.text('.explode-warning', [outcome.explodeAmount])
+      : outcome.isNew
+        ? session.text('.new-user', [cfg.init_p])
+        : risky
+          ? session.text('.exceeding-limit', [cfg.limit_p])
+          : greeting || session.text('.sign-succeed', [outcome.bonus])
+
+    const lines: string[] = []
+    if (outcome.isNew) lines.push(session.text('.new-user', [cfg.init_p]))
+    lines.push(session.text('.sign-succeed', [outcome.bonus]))
+    if (outcome.exploded) {
+      lines.push(session.text('.explode-warning', [outcome.explodeAmount]))
+      if (outcome.poolInjected) lines.push(session.text('.entry_to_channel'))
+    }
+    lines.push(session.text('.balance-show', [outcome.balance]))
+    if (outcome.balance > cfg.limit_p && cfg.boom_chance > 0 && !outcome.exploded) {
+      lines.push(session.text('.exceeding-limit', [cfg.limit_p]))
+    }
+    if (greeting) lines.push(greeting)
+    const fallback = h('at', { id: userId }).toString() + '\n' + lines.join('\n')
+
+    if (cfg.outputLogs) logger.success(userId + userName + '完成了一次签到！')
+    return output(signCard({
+      userName,
+      userId,
+      isNew: outcome.isNew,
+      isAdmin,
+      bonus: outcome.bonus,
+      balance: outcome.balance,
+      initP: cfg.init_p,
+      safeLimit: cfg.limit_p,
+      exploded: outcome.exploded,
+      explodeAmount: outcome.explodeAmount,
+      poolInjected: outcome.poolInjected,
+      boomChance: cfg.boom_chance,
+      dialogue,
+      dateLabel: dateLabel(shiftedNow),
+      timeLabel: clockLabel(shiftedNow),
+    }), fallback)
+  })
 
   ctx.command('p/p-query').alias('查询p点', 'p点查询').action(async ({ session }) => {
-    const USERID = session.userId;//发送者的用户id
-    const notExists = await isTargetIdExists(ctx, USERID); //该群中的该用户是否签到过
-    if (notExists) return session.text('.account-notExists');
-    const usersdata = await ctx.database.get('p_system', { userid: USERID });
-    const saving = usersdata[0]?.p;
-    await session.sendQueued(session.text('.result', [saving]));
-  });
+    const userId = session.userId
+    if (!userId) return session.text('.account-notExists')
+    const [row] = await ctx.database.get('p_system', { userid: userId })
+    if (!row) return session.text('.account-notExists')
+
+    const balance = Number(row.p || 0)
+    const lastSign = asDate(row.time)
+    const now = new Date(Date.now() + cfg.signOffset * 60 * 1000)
+    return output(queryCard({
+      userName: row.usersname || session.username || userId,
+      userId,
+      balance,
+      safeLimit: cfg.limit_p,
+      lastSignLabel: lastSign ? fullTimeLabel(lastSign) : '暂无记录',
+      dateLabel: dateLabel(now),
+      timeLabel: clockLabel(now),
+      boomChance: cfg.boom_chance,
+      dialogue: session.text('.result', [balance]),
+    }), session.text('.result', [balance]))
+  })
 
   ctx.command('p/p-transfer [target] [value:number]').alias('转账').action(async ({ session }, target, value) => {
-    if ((target) == null) { return '“转账 @对方 转账额度”'; }
-    const USERID = session.userId;//发送者的用户id
-    const notExists = await isTargetIdExists(ctx, USERID); //用户是否签到过
-    if (notExists) return session.text('.account-notExists');
-    const usersdata = await ctx.database.get('p_system', { userid: USERID });
-    var targetid = target;
-    const p = Number(value);
-    let text = session.elements.filter((element) => element.type == 'at');
-    let regex = /\b([1-9]\d{6,})\b/;
-    let match = regex.exec(String(target));
-    if (!(text.length === 0) || !match) {
-      if (!match) return session.text('.no-id');
-      targetid = String(text.map(element => element.attrs.id)); // 提取 @ 元素的 id
+    const userId = session.userId
+    if (!userId) return session.text('.account-notExists')
+
+    const amount = Number(value)
+    if (!Number.isFinite(amount)) return session.text('.wrong-value')
+
+    const targetId = resolveTargetId(session, target)
+    if (!targetId) return session.text('.no-id')
+    if (String(targetId) === String(userId)) return session.text('.self-target')
+
+    const isAdmin = adminUsers.includes(userId)
+    if (!(amount > 0) && !isAdmin) return session.text('.wrong-value')
+
+    let outcome: TransferOutcome
+    try {
+      outcome = await transact<TransferOutcome>(async (db) => {
+        const [sender] = await db.get('p_system', { userid: userId })
+        if (!sender) return { error: 'account-notExists' as const }
+        const [receiver] = await db.get('p_system', { userid: targetId })
+        if (!receiver) return { error: 'target-notExists' as const }
+
+        const senderBalance = Number(sender.p || 0)
+        const receiverBalance = Number(receiver.p || 0)
+        if (amount > 0 && senderBalance < amount) return { error: 'no-enough-p' as const }
+
+        let fee = 0
+        let net = amount
+        if (cfg.taxEnabled && amount > 0) {
+          fee = Math.floor(amount * cfg.taxRate)
+          net = amount - fee
+        }
+
+        const nextSender = Math.floor(senderBalance - amount)
+        const nextReceiver = Math.floor(receiverBalance + net)
+        await db.set('p_system', { userid: userId }, { p: nextSender })
+        await db.set('p_system', { userid: targetId }, { p: nextReceiver })
+        return {
+          ok: true as const,
+          senderBalance: nextSender,
+          receiverBalance: nextReceiver,
+          receiverName: receiver.usersname || String(targetId),
+          fee,
+          net,
+        }
+      })
+    } catch (error) {
+      logger.warn('转账失败：', error)
+      return session.text('.wrong-value')
     }
 
-    const targetNotExists = await isTargetIdExists(ctx, targetid); //目标用户是否签到过
-    if (targetNotExists) return session.text('.target-notExists');
-    const targetData = await ctx.database.get('p_system', { userid: targetid });
-    if (USERID == targetid) return session.text('.self-target');
-    if (!(p > 0) && !cfg.adminUsers.includes(USERID)) return session.text('.wrong-value'); //管理员可转负数
-    let netValue = p
-    if (cfg.taxEnabled && p > 0) {
-      const taxAmount = Math.floor(p * cfg.taxRate)
-      netValue = p - taxAmount
-    }
-    if (usersdata[0].p < p) return session.text('.no-enough-p');
+    if ('error' in outcome) return session.text(`.${outcome.error}`)
 
-    // 更新发送者和接收者的余额，并设为整数
-    await ctx.database.set('p_system', { userid: USERID }, { p: Math.floor(usersdata[0].p - p) });
-    await ctx.database.set('p_system', { userid: targetid }, { p: Math.floor(targetData[0].p + netValue) });
+    const now = new Date(Date.now() + cfg.signOffset * 60 * 1000)
+    const lines = [
+      session.text('.transfer-succeed'),
+      session.text('.result', [targetId, outcome.receiverBalance]),
+      session.text('.result', [userId, outcome.senderBalance]),
+    ]
+    if (outcome.fee > 0) lines.push(session.text('.tax-info', [outcome.fee]))
 
-    const senderBalance = (await ctx.database.get('p_system', { userid: USERID }))[0].p;
-    const receiverBalance = (await ctx.database.get('p_system', { userid: targetid }))[0].p;
-
-    let result = `${session.text('.transfer-succeed')}\n.${session.text('.result', [targetid, receiverBalance])}\n.${session.text('.result', [USERID, senderBalance])}`
-    if (cfg.taxEnabled && p > 0) {
-      result += `\n${session.text('.tax-info', [p - netValue])}`
-    }
-    return result
-  });
+    return output(transferCard({
+      fromName: session.username || userId,
+      fromId: userId,
+      toName: outcome.receiverName,
+      toId: targetId,
+      amount,
+      fee: outcome.fee,
+      net: outcome.net,
+      fromBalance: outcome.senderBalance,
+      toBalance: outcome.receiverBalance,
+      dateLabel: dateLabel(now),
+      timeLabel: clockLabel(now),
+      adminAdjust: isAdmin,
+      dialogue: session.text('.transfer-succeed'),
+    }), lines.join('\n'))
+  })
 }

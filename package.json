@@ -5,7 +5,8 @@
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
-    "lib"
+    "lib",
+    "renderer"
   ],
   "contributors": [
     "gfjdh <2556123498@qq.com>"
@@ -28,6 +29,9 @@
     "service": {
       "required": [
         "database"
+      ],
+      "optional": [
+        "puppeteer"
       ]
     }
   }
