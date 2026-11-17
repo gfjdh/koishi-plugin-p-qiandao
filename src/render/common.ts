@@ -18,7 +18,7 @@ export type CharacterMood = 'neutral' | 'happy' | 'worried' | 'shocked' | 'sleep
 const rendererDir = [
   path.resolve(__dirname, '../renderer'),
   path.resolve(__dirname, '../../renderer'),
-].find((dir) => fs.existsSync(path.join(dir, 'fonts', 'JiangxiZK.ttf')))
+].find((dir) => fs.existsSync(path.join(dir, 'page.html')))
   || path.resolve(__dirname, '../renderer')
 
 function assetUrl(...parts: string[]): string | null {
@@ -26,8 +26,7 @@ function assetUrl(...parts: string[]): string | null {
   return fs.existsSync(file) ? pathToFileURL(file).href : null
 }
 
-export const FONT_URL = pathToFileURL(path.join(rendererDir, 'fonts', 'JiangxiZK.ttf')).href
-// 截图前先打开这个本地空白页，页面才有 file:// 源，背景/立绘/字体这些 file:// 子资源才不会被拦。
+// 截图前先打开这个本地空白页，页面才有 file:// 源，背景/立绘这些 file:// 子资源才不会被拦。
 export const PAGE_URL = pathToFileURL(path.join(rendererDir, 'page.html')).href
 const BG_URL = assetUrl('bg', 'chireiden.jpg') || assetUrl('bg', 'chireiden.png')
 
@@ -168,7 +167,6 @@ export function shell(options: ShellOptions): string {
 <head>
 <meta charset="utf-8">
 <style>
-@font-face { font-family: 'JX'; src: url('${FONT_URL}'); }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
@@ -176,7 +174,7 @@ body {
   min-height: ${height}px;
   background: #0b0711;
   color: ${INK};
-  font-family: 'Noto Sans SC', 'Microsoft YaHei', 'JX', sans-serif;
+  font-family: 'Noto Sans CJK SC', 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 .card {
@@ -274,7 +272,7 @@ body {
 }
 .title {
   margin-top: 7px;
-  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'STSong', 'SimSun', 'JX', serif;
+  font-family: 'Noto Serif CJK SC', 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'STSong', 'SimSun', serif;
   font-size: 30px;
   font-weight: 700;
   letter-spacing: 3px;
@@ -330,7 +328,7 @@ body {
 }
 .balance {
   margin-top: 7px;
-  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'STSong', 'SimSun', 'JX', serif;
+  font-family: 'Noto Serif CJK SC', 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'STSong', 'SimSun', serif;
   font-size: 54px;
   font-weight: 700;
   line-height: 1;
@@ -413,7 +411,7 @@ body {
   color: ${GOLD};
 }
 .line {
-  font-family: 'LXGW WenKai', 'STKaiti', 'KaiTi', 'JX', serif;
+  font-family: 'LXGW WenKai', 'STKaiti', 'KaiTi', 'Kaiti SC', 'Noto Serif CJK SC', serif;
   font-size: 15px;
   line-height: 1.65;
   color: #efe4fb;
